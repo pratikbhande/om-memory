@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "om-memory"
-version = "0.2.2"
+version = "0.2.4"
 description = "Human-like memory for AI agents. 10x cheaper than RAG. Zero vector DB needed."
 readme = "README.md"
 license = "Apache-2.0"
