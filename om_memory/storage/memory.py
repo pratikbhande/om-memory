@@ -43,7 +43,16 @@ class InMemoryStorage(StorageBackend):
         for obs in observations:
             if obs.thread_id not in self._observations:
                 self._observations[obs.thread_id] = []
-            self._observations[obs.thread_id].append(obs)
+            # Upsert: replace existing observation with same ID, or append
+            obs_list = self._observations[obs.thread_id]
+            replaced = False
+            for i, existing in enumerate(obs_list):
+                if existing.id == obs.id:
+                    obs_list[i] = obs
+                    replaced = True
+                    break
+            if not replaced:
+                obs_list.append(obs)
             
     async def aget_observations(self, thread_id: str) -> list[Observation]:
         return self.get_observations(thread_id)

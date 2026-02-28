@@ -56,8 +56,6 @@ class SQLiteStorage(StorageBackend):
             metadata TEXT
         )
         ''')
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, timestamp)")
-        
         cur.execute('''
         CREATE TABLE IF NOT EXISTS observations (
             id TEXT PRIMARY KEY,
@@ -72,6 +70,18 @@ class SQLiteStorage(StorageBackend):
             token_count INTEGER
         )
         ''')
+        
+        # Migration: add resource_id column if missing (upgrade from v0.1.x)
+        # Must run BEFORE creating indexes on resource_id
+        existing_msg_cols = {row[1] for row in cur.execute("PRAGMA table_info(messages)").fetchall()}
+        if "resource_id" not in existing_msg_cols:
+            cur.execute("ALTER TABLE messages ADD COLUMN resource_id TEXT")
+        existing_obs_cols = {row[1] for row in cur.execute("PRAGMA table_info(observations)").fetchall()}
+        if "resource_id" not in existing_obs_cols:
+            cur.execute("ALTER TABLE observations ADD COLUMN resource_id TEXT")
+        
+        # Create indexes (after migration ensures columns exist)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, timestamp)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_observations_thread ON observations(thread_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_observations_resource ON observations(resource_id)")
         conn.commit()
@@ -89,7 +99,6 @@ class SQLiteStorage(StorageBackend):
             metadata TEXT
         )
         ''')
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, timestamp)")
         await db.execute('''
         CREATE TABLE IF NOT EXISTS observations (
             id TEXT PRIMARY KEY,
@@ -104,6 +113,20 @@ class SQLiteStorage(StorageBackend):
             token_count INTEGER
         )
         ''')
+        
+        # Migration: add resource_id column if missing (upgrade from v0.1.x)
+        # Must run BEFORE creating indexes on resource_id
+        async with db.execute("PRAGMA table_info(messages)") as cursor:
+            msg_cols = {row[1] for row in await cursor.fetchall()}
+        if "resource_id" not in msg_cols:
+            await db.execute("ALTER TABLE messages ADD COLUMN resource_id TEXT")
+        async with db.execute("PRAGMA table_info(observations)") as cursor:
+            obs_cols = {row[1] for row in await cursor.fetchall()}
+        if "resource_id" not in obs_cols:
+            await db.execute("ALTER TABLE observations ADD COLUMN resource_id TEXT")
+        
+        # Create indexes (after migration ensures columns exist)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, timestamp)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_observations_thread ON observations(thread_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_observations_resource ON observations(resource_id)")
         await db.commit()
@@ -123,7 +146,7 @@ class SQLiteStorage(StorageBackend):
     def get_messages(self, thread_id: str, limit: int = None) -> list[Message]:
         query = "SELECT id, thread_id, resource_id, role, content, timestamp, token_count, metadata FROM messages WHERE thread_id = ? ORDER BY timestamp ASC"
         if limit:
-            query = f"SELECT * FROM ({query} LIMIT {limit}) ORDER BY timestamp ASC"
+            query = f"SELECT id, thread_id, resource_id, role, content, timestamp, token_count, metadata FROM ({query} LIMIT {limit}) ORDER BY timestamp ASC"
             
         with sqlite3.connect(self.db_path) as conn:
             cur = conn.cursor()
@@ -170,7 +193,11 @@ class SQLiteStorage(StorageBackend):
     def get_observations(self, thread_id: str) -> list[Observation]:
         with sqlite3.connect(self.db_path) as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM observations WHERE thread_id = ? ORDER BY observation_date ASC", (thread_id,))
+            cur.execute(
+                "SELECT id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count "
+                "FROM observations WHERE thread_id = ? ORDER BY observation_date ASC",
+                (thread_id,)
+            )
             rows = cur.fetchall()
             
         return [self._row_to_obs(row) for row in rows]
@@ -232,7 +259,11 @@ class SQLiteStorage(StorageBackend):
     def get_resource_observations(self, resource_id: str) -> list[Observation]:
         with sqlite3.connect(self.db_path) as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM observations WHERE resource_id = ? ORDER BY observation_date ASC", (resource_id,))
+            cur.execute(
+                "SELECT id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count "
+                "FROM observations WHERE resource_id = ? ORDER BY observation_date ASC",
+                (resource_id,)
+            )
             rows = cur.fetchall()
         return [self._row_to_obs(row) for row in rows]
     
@@ -253,7 +284,7 @@ class SQLiteStorage(StorageBackend):
     async def aget_messages(self, thread_id: str, limit: int = None) -> list[Message]:
         query = "SELECT id, thread_id, resource_id, role, content, timestamp, token_count, metadata FROM messages WHERE thread_id = ? ORDER BY timestamp ASC"
         if limit:
-            query = f"SELECT * FROM ({query} LIMIT {limit}) ORDER BY timestamp ASC"
+            query = f"SELECT id, thread_id, resource_id, role, content, timestamp, token_count, metadata FROM ({query} LIMIT {limit}) ORDER BY timestamp ASC"
             
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(query, (thread_id,)) as cursor:
@@ -284,7 +315,11 @@ class SQLiteStorage(StorageBackend):
 
     async def aget_observations(self, thread_id: str) -> list[Observation]:
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute("SELECT * FROM observations WHERE thread_id = ? ORDER BY observation_date ASC", (thread_id,)) as cursor:
+            async with db.execute(
+                "SELECT id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count "
+                "FROM observations WHERE thread_id = ? ORDER BY observation_date ASC",
+                (thread_id,)
+            ) as cursor:
                 rows = await cursor.fetchall()
             
         return [self._row_to_obs(row) for row in rows]
@@ -329,7 +364,8 @@ class SQLiteStorage(StorageBackend):
     async def aget_resource_observations(self, resource_id: str) -> list[Observation]:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
-                "SELECT * FROM observations WHERE resource_id = ? ORDER BY observation_date ASC",
+                "SELECT id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count "
+                "FROM observations WHERE resource_id = ? ORDER BY observation_date ASC",
                 (resource_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
