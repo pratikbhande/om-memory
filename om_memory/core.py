@@ -251,13 +251,12 @@ class ObservationalMemory:
         )
         
         if new_obs:
-            await self.storage.asave_observations(new_obs)
-            
-            # Also save as resource-scoped if resource_id provided
+            # Set resource_id on observations BEFORE saving (avoids double-insert)
             if resource_id:
                 for obs in new_obs:
                     obs.resource_id = resource_id
-                await self.storage.asave_resource_observations(new_obs)
+            
+            await self.storage.asave_observations(new_obs)
             
             # ROLLING WINDOW: Keep the last N messages instead of deleting ALL
             retention = self.config.message_retention_count

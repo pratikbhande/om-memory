@@ -157,7 +157,7 @@ class SQLiteStorage(StorageBackend):
             cur = conn.cursor()
             for obs in observations:
                 cur.execute(
-                    """INSERT INTO observations 
+                    """INSERT OR REPLACE INTO observations 
                     (id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (obs.id, obs.thread_id, obs.resource_id, obs.observation_date.isoformat(), 
@@ -218,7 +218,7 @@ class SQLiteStorage(StorageBackend):
             cur.execute("DELETE FROM observations WHERE thread_id = ?", (thread_id,))
             for obs in observations:
                 cur.execute(
-                    """INSERT INTO observations 
+                    """INSERT OR REPLACE INTO observations 
                     (id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (obs.id, obs.thread_id, obs.resource_id, obs.observation_date.isoformat(), 
@@ -272,7 +272,7 @@ class SQLiteStorage(StorageBackend):
         async with aiosqlite.connect(self.db_path) as db:
             for obs in observations:
                 await db.execute(
-                    """INSERT INTO observations 
+                    """INSERT OR REPLACE INTO observations 
                     (id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (obs.id, obs.thread_id, obs.resource_id, obs.observation_date.isoformat(), 
@@ -315,7 +315,7 @@ class SQLiteStorage(StorageBackend):
             await db.execute("DELETE FROM observations WHERE thread_id = ?", (thread_id,))
             for obs in observations:
                 await db.execute(
-                    """INSERT INTO observations 
+                    """INSERT OR REPLACE INTO observations 
                     (id, thread_id, resource_id, observation_date, referenced_date, relative_date, priority, content, source_message_ids, token_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (obs.id, obs.thread_id, obs.resource_id, obs.observation_date.isoformat(), 
