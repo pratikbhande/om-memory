@@ -11,13 +11,17 @@ import os
 import asyncio
 import time
 import json
-import nest_asyncio
+import concurrent.futures
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 
-nest_asyncio.apply()
+
+def run_async(coro):
+    """Run an async coroutine safely from Streamlit's sync context."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -456,11 +460,11 @@ if st.sidebar.button("🚀 Run Simulation", type="primary", use_container_width=
         st.session_state["queries"] = queries
     
     with st.spinner("📊 Running Traditional RAG pipeline..."):
-        rag_results = asyncio.run(run_traditional_rag(oai_client, collection, queries))
+        rag_results = run_async(run_traditional_rag(oai_client, collection, queries))
         st.session_state["rag_results"] = rag_results
     
     with st.spinner("🧠 Running om-memory pipeline..."):
-        om_results, obs_log, final_obs, final_ctx = asyncio.run(
+        om_results, obs_log, final_obs, final_ctx = run_async(
             run_om_memory(oai_client, collection, queries)
         )
         st.session_state["om_results"] = om_results

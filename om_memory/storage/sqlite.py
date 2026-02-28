@@ -74,6 +74,17 @@ class SQLiteStorage(StorageBackend):
         ''')
         cur.execute("CREATE INDEX IF NOT EXISTS idx_observations_thread ON observations(thread_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_observations_resource ON observations(resource_id)")
+        
+        # Migration: add resource_id column if missing (upgrade from v0.1.x)
+        try:
+            cur.execute("SELECT resource_id FROM messages LIMIT 1")
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE messages ADD COLUMN resource_id TEXT")
+        try:
+            cur.execute("SELECT resource_id FROM observations LIMIT 1")
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE observations ADD COLUMN resource_id TEXT")
+        
         conn.commit()
 
     async def _acreate_tables(self, db: aiosqlite.Connection):
@@ -106,6 +117,17 @@ class SQLiteStorage(StorageBackend):
         ''')
         await db.execute("CREATE INDEX IF NOT EXISTS idx_observations_thread ON observations(thread_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_observations_resource ON observations(resource_id)")
+        
+        # Migration: add resource_id column if missing (upgrade from v0.1.x)
+        try:
+            await db.execute("SELECT resource_id FROM messages LIMIT 1")
+        except Exception:
+            await db.execute("ALTER TABLE messages ADD COLUMN resource_id TEXT")
+        try:
+            await db.execute("SELECT resource_id FROM observations LIMIT 1")
+        except Exception:
+            await db.execute("ALTER TABLE observations ADD COLUMN resource_id TEXT")
+        
         await db.commit()
 
     # --- Sync Methods ---
