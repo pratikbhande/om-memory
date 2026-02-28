@@ -25,9 +25,10 @@ from om_memory.models import (
 from om_memory.observability.callbacks import EventType, OMEvent, CallbackManager
 from om_memory.providers.base import LLMProvider
 from om_memory.storage.base import StorageBackend
+from om_memory.parsing import parse_observations
 
 # Version
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ObservationalMemory",
@@ -42,4 +43,5 @@ __all__ = [
     "CallbackManager",
     "LLMProvider",
     "StorageBackend",
+    "parse_observations",
 ]

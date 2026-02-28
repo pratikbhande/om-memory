@@ -9,6 +9,7 @@ class InMemoryStorage(StorageBackend):
     def __init__(self):
         self._messages: Dict[str, List[Message]] = {}
         self._observations: Dict[str, List[Observation]] = {}
+        self._resource_observations: Dict[str, List[Observation]] = {}
         
     async def asave_messages(self, messages: list[Message]) -> None:
         self.save_messages(messages)
@@ -23,7 +24,8 @@ class InMemoryStorage(StorageBackend):
         return self.get_messages(thread_id, limit)
         
     def get_messages(self, thread_id: str, limit: int = None) -> list[Message]:
-        msgs = self._messages.get(thread_id, sorted([], key=lambda m: m.timestamp))
+        msgs = self._messages.get(thread_id, [])
+        msgs = sorted(msgs, key=lambda m: m.timestamp)
         return msgs[-limit:] if limit else msgs
         
     async def adelete_messages(self, message_ids: list[str]) -> None:
@@ -53,7 +55,6 @@ class InMemoryStorage(StorageBackend):
         self.update_observations(observations)
         
     def update_observations(self, observations: list[Observation]) -> None:
-        # For memory, we just replace existing by ID
         for obs in observations:
             obs_list = self._observations.get(obs.thread_id, [])
             for i, existing in enumerate(obs_list):
@@ -74,6 +75,27 @@ class InMemoryStorage(StorageBackend):
         
     def replace_observations(self, thread_id: str, observations: list[Observation]) -> None:
         self._observations[thread_id] = observations
+
+    # Resource-scoped operations
+    async def aget_resource_observations(self, resource_id: str) -> list[Observation]:
+        return self.get_resource_observations(resource_id)
+    
+    def get_resource_observations(self, resource_id: str) -> list[Observation]:
+        return sorted(
+            self._resource_observations.get(resource_id, []),
+            key=lambda o: o.observation_date,
+        )
+    
+    async def asave_resource_observations(self, observations: list[Observation]) -> None:
+        self.save_resource_observations(observations)
+    
+    def save_resource_observations(self, observations: list[Observation]) -> None:
+        for obs in observations:
+            rid = obs.resource_id
+            if rid:
+                if rid not in self._resource_observations:
+                    self._resource_observations[rid] = []
+                self._resource_observations[rid].append(obs)
 
     async def ainitialize(self) -> None:
         self.initialize()

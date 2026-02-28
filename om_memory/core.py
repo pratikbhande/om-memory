@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import concurrent.futures
 from typing import Callable, Union
 
 from om_memory.models import OMConfig, OMStats, Message, Observation
@@ -14,10 +16,19 @@ from om_memory.reflector import Reflector
 from om_memory.context_builder import ContextBuilder
 from om_memory.config import default_config
 
+logger = logging.getLogger("om_memory")
+
 
 class ObservationalMemory:
     """
     The main entry point for Observational Memory.
+    
+    Supports:
+    - Thread-scoped memory (per conversation)
+    - Resource-scoped memory (shared across a user's threads)
+    - Rolling window message retention
+    - Async buffering for non-blocking mode
+    - Demo mode with lower thresholds
     """
     
     def __init__(
@@ -59,7 +70,11 @@ class ObservationalMemory:
         self._register_metrics_hooks()
         
         # Thread locks for safety
-        self._locks = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        
+        # Async buffer for non-blocking mode
+        self._async_buffer: dict[str, list] = {}
+        self._buffer_tasks: dict[str, asyncio.Task] = {}
 
     def _get_lock(self, thread_id: str) -> asyncio.Lock:
         if thread_id not in self._locks:
@@ -84,6 +99,10 @@ class ObservationalMemory:
         self.storage.initialize()
 
     async def aclose(self) -> None:
+        # Cancel any pending buffer tasks
+        for task in self._buffer_tasks.values():
+            if not task.done():
+                task.cancel()
         await self.storage.aclose()
         
     def close(self) -> None:
@@ -101,16 +120,38 @@ class ObservationalMemory:
     async def aget_context(
         self,
         thread_id: str,
+        resource_id: str = None,
         max_tokens: int = None,
         format: str = "text",
         include_header: bool = True
     ) -> Union[str, dict]:
-        # Always init storage if not done explicitly
+        """
+        Get context for a thread, optionally including resource-scoped observations.
+        
+        Args:
+            thread_id: The conversation thread ID.
+            resource_id: Optional. If provided, also includes observations shared
+                         across all threads for this resource (e.g., a user ID).
+            max_tokens: Maximum tokens for the context window.
+            format: Output format — "text", "dict", or "json".
+            include_header: Whether to include section headers.
+        """
         await self.storage.ainitialize()
         
         lock = self._get_lock(thread_id)
         async with lock:
             observations = await self.storage.aget_observations(thread_id)
+            
+            # Merge resource-scoped observations if available
+            if resource_id:
+                resource_obs = await self.storage.aget_resource_observations(resource_id)
+                # Deduplicate by ID
+                obs_ids = {o.id for o in observations}
+                for ro in resource_obs:
+                    if ro.id not in obs_ids:
+                        observations.append(ro)
+                observations.sort(key=lambda x: x.observation_date)
+            
             messages = await self.storage.aget_messages(thread_id)
             
         return self.context_builder.build_context(
@@ -120,33 +161,42 @@ class ObservationalMemory:
             max_tokens=max_tokens,
             include_header=include_header,
             format=format,
-            callbacks=self.callbacks
+            callbacks=self.callbacks,
+            message_token_budget=self.config.message_token_budget,
+            share_token_budget=self.config.share_token_budget,
         )
 
     def get_context(self, thread_id: str, **kwargs) -> Union[str, dict]:
-        # Sync wrapper
-        try:
-            loop = asyncio.get_running_loop()
-            return loop.run_until_complete(self.aget_context(thread_id, **kwargs))
-        except RuntimeError:
-            return asyncio.run(self.aget_context(thread_id, **kwargs))
+        """Sync wrapper — safe to call from both sync and async contexts."""
+        return self._run_sync(self.aget_context(thread_id, **kwargs))
 
     async def aadd_message(
         self,
         thread_id: str,
         role: str,
         content: str,
+        resource_id: str = None,
         metadata: dict = None
     ) -> None:
+        """
+        Add a message and trigger observation if threshold is exceeded.
+        
+        Args:
+            thread_id: The conversation thread ID.
+            role: Message role ("user", "assistant", "system", "tool").
+            content: Message content.
+            resource_id: Optional resource ID for cross-thread memory sharing.
+            metadata: Optional metadata dict.
+        """
         await self.storage.ainitialize()
         
         msg = Message(
             thread_id=thread_id,
+            resource_id=resource_id,
             role=role,
             content=content,
             metadata=metadata or {}
         )
-        # Pre-count so it's cached
         msg.token_count = self.token_counter.count(f"{msg.role}: {msg.content}")
         
         lock = self._get_lock(thread_id)
@@ -159,62 +209,109 @@ class ObservationalMemory:
             
             if self.config.auto_observe and msg_tokens >= self.config.observer_token_threshold:
                 if self.config.blocking_mode:
-                    await self._run_observe(thread_id, all_msgs)
+                    await self._run_observe(thread_id, all_msgs, resource_id=resource_id)
                 else:
-                    asyncio.create_task(self._run_observe(thread_id, all_msgs))
+                    await self._buffered_observe(thread_id, all_msgs, resource_id=resource_id)
 
     def add_message(self, thread_id: str, role: str, content: str, **kwargs) -> None:
+        """Sync wrapper — safe to call from both sync and async contexts."""
+        self._run_sync(self.aadd_message(thread_id, role, content, **kwargs))
+
+    # --- ASYNC BUFFERING ---
+
+    async def _buffered_observe(self, thread_id: str, messages: list[Message], resource_id: str = None):
+        """
+        Queue an observation task with proper error handling.
+        Unlike bare create_task, this catches and logs failures.
+        """
+        task = asyncio.create_task(
+            self._safe_observe(thread_id, messages, resource_id=resource_id)
+        )
+        self._buffer_tasks[thread_id] = task
+
+    async def _safe_observe(self, thread_id: str, messages: list[Message], resource_id: str = None):
+        """Wrapper that catches and logs observation errors instead of losing them silently."""
         try:
-            loop = asyncio.get_running_loop()
-            loop.run_until_complete(self.aadd_message(thread_id, role, content, **kwargs))
-        except RuntimeError:
-            asyncio.run(self.aadd_message(thread_id, role, content, **kwargs))
+            await self._run_observe(thread_id, messages, resource_id=resource_id)
+        except Exception as e:
+            logger.error(f"Async observation failed for thread {thread_id}: {e}")
+            self.callbacks.emit(OMEvent(
+                type=EventType.OBSERVER_ERROR,
+                thread_id=thread_id,
+                timestamp=__import__('datetime').datetime.now(__import__('datetime').timezone.utc),
+                data={"error": str(e), "source": "async_buffer"}
+            ))
 
-    # --- MANUAL CONTROLS ---
+    # --- INTERNAL OBSERVATION/REFLECTION ---
 
-    async def _run_observe(self, thread_id: str, messages: list[Message]) -> list[Observation]:
+    async def _run_observe(self, thread_id: str, messages: list[Message], resource_id: str = None) -> list[Observation]:
         observations = await self.storage.aget_observations(thread_id)
-        new_obs = await self.observer.aobserve(thread_id, messages, observations, self.callbacks)
+        new_obs = await self.observer.aobserve(
+            thread_id, messages, observations, self.callbacks, resource_id=resource_id
+        )
         
         if new_obs:
             await self.storage.asave_observations(new_obs)
-            await self.storage.adelete_messages([m.id for m in messages])
+            
+            # Also save as resource-scoped if resource_id provided
+            if resource_id:
+                for obs in new_obs:
+                    obs.resource_id = resource_id
+                await self.storage.asave_resource_observations(new_obs)
+            
+            # ROLLING WINDOW: Keep the last N messages instead of deleting ALL
+            retention = self.config.message_retention_count
+            if retention > 0 and len(messages) > retention:
+                messages_to_delete = messages[:-retention]
+                await self.storage.adelete_messages([m.id for m in messages_to_delete])
+            elif retention == 0:
+                # Delete all (old behavior, configurable)
+                await self.storage.adelete_messages([m.id for m in messages])
+            # else: retention >= len(messages), keep all
             
             # Check if reflection is needed
             all_obs = observations + new_obs
             obs_tokens = self.token_counter.count_observations(all_obs)
             
             if self.config.auto_reflect and obs_tokens >= self.config.reflector_token_threshold:
-                await self._run_reflect(thread_id, all_obs)
+                await self._run_reflect(thread_id, all_obs, resource_id=resource_id)
                 
         return new_obs
 
-    async def aobserve(self, thread_id: str) -> list[Observation]:
+    async def aobserve(self, thread_id: str, resource_id: str = None) -> list[Observation]:
+        """Manually trigger observation for a thread."""
         lock = self._get_lock(thread_id)
         async with lock:
             all_msgs = await self.storage.aget_messages(thread_id)
             if not all_msgs:
                 return []
-            return await self._run_observe(thread_id, all_msgs)
+            return await self._run_observe(thread_id, all_msgs, resource_id=resource_id)
 
-    async def _run_reflect(self, thread_id: str, observations: list[Observation]) -> list[Observation]:
-        new_obs = await self.reflector.areflect(thread_id, observations, self.callbacks)
+    async def _run_reflect(self, thread_id: str, observations: list[Observation], resource_id: str = None) -> list[Observation]:
+        new_obs = await self.reflector.areflect(
+            thread_id, observations, self.callbacks, resource_id=resource_id
+        )
         if new_obs:
             await self.storage.areplace_observations(thread_id, new_obs)
         return new_obs
 
-    async def areflect(self, thread_id: str) -> list[Observation]:
+    async def areflect(self, thread_id: str, resource_id: str = None) -> list[Observation]:
+        """Manually trigger reflection for a thread."""
         lock = self._get_lock(thread_id)
         async with lock:
             observations = await self.storage.aget_observations(thread_id)
             if not observations:
                 return []
-            return await self._run_reflect(thread_id, observations)
+            return await self._run_reflect(thread_id, observations, resource_id=resource_id)
 
     # --- INTROSPECTION ---
     
     async def aget_observations(self, thread_id: str) -> list[Observation]:
         return await self.storage.aget_observations(thread_id)
+    
+    async def aget_resource_observations(self, resource_id: str) -> list[Observation]:
+        """Get observations shared across all threads for a resource."""
+        return await self.storage.aget_resource_observations(resource_id)
         
     async def aget_stats(self, thread_id: str) -> OMStats:
         return self.metrics.get_thread_stats(thread_id)
@@ -237,3 +334,20 @@ class ObservationalMemory:
             
             obs = await self.storage.aget_observations(thread_id)
             await self.storage.adelete_observations([o.id for o in obs])
+
+    # --- SYNC HELPER ---
+
+    @staticmethod
+    def _run_sync(coro):
+        """
+        Safely run an async coroutine from sync code.
+        Works whether or not an event loop is already running.
+        """
+        try:
+            asyncio.get_running_loop()
+            # We're inside a running loop — run in a new thread to avoid deadlock
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+        except RuntimeError:
+            # No running loop — safe to use asyncio.run directly
+            return asyncio.run(coro)

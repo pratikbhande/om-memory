@@ -48,6 +48,23 @@ class StorageBackend(ABC):
     @abstractmethod
     def replace_observations(self, thread_id: str, observations: list[Observation]) -> None: ...
     
+    # Resource-scoped observation operations
+    async def aget_resource_observations(self, resource_id: str) -> list[Observation]:
+        """Get observations shared across all threads for a given resource."""
+        return []
+    
+    def get_resource_observations(self, resource_id: str) -> list[Observation]:
+        """Get observations shared across all threads for a given resource (sync)."""
+        return []
+    
+    async def asave_resource_observations(self, observations: list[Observation]) -> None:
+        """Save resource-scoped observations. Falls back to regular save if not overridden."""
+        await self.asave_observations(observations)
+    
+    def save_resource_observations(self, observations: list[Observation]) -> None:
+        """Save resource-scoped observations (sync). Falls back to regular save if not overridden."""
+        self.save_observations(observations)
+    
     # Lifecycle
     @abstractmethod
     async def ainitialize(self) -> None: ...

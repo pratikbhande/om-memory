@@ -1,5 +1,5 @@
 from typing import Union, List, Dict
-from om_memory.models import Observation, Message, ObservationLog
+from om_memory.models import Observation, Message, ObservationLog, Priority
 from om_memory.token_counter import TokenCounter
 from om_memory.observability.callbacks import CallbackManager, OMEvent, EventType
 from datetime import datetime, timezone
@@ -20,7 +20,9 @@ class ContextBuilder:
         max_tokens: int = None,
         include_header: bool = True,
         format: str = "text",
-        callbacks: CallbackManager = None
+        callbacks: CallbackManager = None,
+        message_token_budget: int = None,
+        share_token_budget: bool = False,
     ) -> Union[str, Dict]:
         
         obs_log = ObservationLog(
@@ -32,12 +34,35 @@ class ContextBuilder:
         msg_total_tokens = self.token_counter.count_messages(messages)
         obs_total_tokens = obs_log.total_tokens
         
-        # Optionally truncate
+        # Apply message_token_budget: trim oldest messages to fit budget
+        if message_token_budget and msg_total_tokens > message_token_budget:
+            trimmed_messages = []
+            budget_remaining = message_token_budget
+            # Keep newest messages first
+            for m in reversed(messages):
+                t = m.token_count or self.token_counter.count(f"{m.role}: {m.content}")
+                if budget_remaining >= t:
+                    trimmed_messages.insert(0, m)
+                    budget_remaining -= t
+                else:
+                    break
+            messages = trimmed_messages
+            msg_total_tokens = self.token_counter.count_messages(messages)
+        
+        # If share_token_budget is True and messages still need room,
+        # allow them to borrow from the observation budget
+        effective_max = max_tokens
+        if share_token_budget and max_tokens:
+            # Messages can use observation budget space
+            pass  # No separate capping — the combined truncation below handles it
+        
+        # Truncate observations if combined budget exceeded
         if max_tokens and (obs_total_tokens + msg_total_tokens > max_tokens):
-            # Keep as many messages as possible, then keep as many observations as possible
-            # But usually we truncate observations (oldest INFO) first, then older messages.
-            # For simplicity in this implementation, we will keep messages and truncate oldest non-critical observations.
-            sorted_obs = sorted(observations, key=lambda x: (x.priority == Priority.CRITICAL, x.observation_date), reverse=True)
+            sorted_obs = sorted(
+                observations,
+                key=lambda x: (x.priority == Priority.CRITICAL, x.observation_date),
+                reverse=True,
+            )
             kept_obs = []
             current_tokens = msg_total_tokens
             for o in sorted_obs:
@@ -46,11 +71,9 @@ class ContextBuilder:
                     kept_obs.append(o)
                     current_tokens += t
             
-            # Re-sort chronologically for the context
             observations = sorted(kept_obs, key=lambda x: x.observation_date)
             obs_log.observations = observations
             obs_log.total_tokens = self.token_counter.count_observations(observations)
-            
             obs_total_tokens = obs_log.total_tokens
 
         if format == "dict":
@@ -59,7 +82,6 @@ class ContextBuilder:
             import json
             ctx = json.dumps(self.build_context_dict(obs_log, messages), default=str)
         else:
-            # text
             obs_text = obs_log.to_context_string()
             msg_text = "\n".join([f"{m.role}: {m.content}" for m in messages])
             
@@ -98,8 +120,6 @@ class ContextBuilder:
         current_task = ""
         suggested_next = ""
         
-        # Extract the special tasks from the observations to place them distinctly in the dict
-        # Actually in our parsing we just added them as CRITICAL/IMPORTANT observations with the prefix
         for o in obs_log.observations:
             if o.content.startswith("CURRENT TASK:"):
                 current_task = o.content.replace("CURRENT TASK:", "").strip()
@@ -117,6 +137,6 @@ class ContextBuilder:
                 "observation_tokens": obs_log.total_tokens,
                 "message_tokens": self.token_counter.count_messages(messages),
                 "total_tokens": obs_log.total_tokens + self.token_counter.count_messages(messages),
-                "cache_eligible_tokens": obs_log.total_tokens  # stable prefix
+                "cache_eligible_tokens": obs_log.total_tokens
             }
         }

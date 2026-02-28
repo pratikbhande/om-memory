@@ -1,12 +1,11 @@
-import re
-from datetime import datetime, time, timezone
-from typing import Optional
+from datetime import datetime, timezone
 
-from om_memory.models import Message, Observation, Priority, OMConfig
+from om_memory.models import Message, Observation, OMConfig
 from om_memory.providers.base import LLMProvider
 from om_memory.observability.callbacks import CallbackManager, OMEvent, EventType
 from om_memory.token_counter import TokenCounter
 from om_memory.prompts.observer_prompt import OBSERVER_SYSTEM_PROMPT
+from om_memory.parsing import parse_observations
 
 
 class Observer:
@@ -24,7 +23,8 @@ class Observer:
         thread_id: str,
         messages: list[Message],
         existing_observations: list[Observation] = None,
-        callbacks: CallbackManager = None
+        callbacks: CallbackManager = None,
+        resource_id: str = None,
     ) -> list[Observation]:
         
         if callbacks:
@@ -50,13 +50,14 @@ class Observer:
         except Exception as e:
             if callbacks:
                 callbacks.emit(OMEvent(type=EventType.OBSERVER_ERROR, thread_id=thread_id, timestamp=datetime.now(timezone.utc), data={"error": str(e)}))
-            # Graceful degradation
             return []
             
         output_tokens = self.token_counter.count(llm_response)
             
-        # Parse observations
-        new_observations = self._parse_observations(llm_response, thread_id, [m.id for m in messages])
+        # Parse observations using shared utility
+        new_observations = parse_observations(
+            llm_response, thread_id, [m.id for m in messages], resource_id=resource_id
+        )
         
         if callbacks:
             callbacks.emit(OMEvent(
@@ -72,98 +73,3 @@ class Observer:
             ))
             
         return new_observations
-        
-    def _parse_observations(self, llm_response: str, thread_id: str, source_message_ids: list[str]) -> list[Observation]:
-        observations = []
-        current_date = datetime.now(timezone.utc)
-        
-        # Extract CURRENT_TASK and SUGGESTED_NEXT
-        task_match = re.search(r"CURRENT_TASK:\s*(.*)", llm_response)
-        next_match = re.search(r"SUGGESTED_NEXT:\s*(.*)", llm_response)
-        
-        if task_match:
-            observations.append(Observation(
-                thread_id=thread_id,
-                priority=Priority.CRITICAL,
-                content=f"CURRENT TASK: {task_match.group(1).strip()}",
-                source_message_ids=source_message_ids
-            ))
-            
-        if next_match:
-            observations.append(Observation(
-                thread_id=thread_id,
-                priority=Priority.IMPORTANT,
-                content=f"SUGGESTED NEXT: {next_match.group(1).strip()}",
-                source_message_ids=source_message_ids
-            ))
-
-        lines = llm_response.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith("Date:"):
-                try:
-                    date_str = line.split(":")[1].strip()
-                    parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                    current_date = datetime.combine(parsed_date, current_date.time(), tzinfo=timezone.utc)
-                except Exception:
-                    pass # Ignore parse errors, use current utc
-                continue
-                
-            if line.startswith("-") and any(emoji in line for emoji in ["🔴", "🟡", "🟢"]):
-                try:
-                    # Parse parts
-                    priority_val = Priority.INFO
-                    for p in Priority:
-                        if p.value in line:
-                            priority_val = p
-                            break
-                            
-                    # Extract time and content
-                    time_match = re.search(r"(\d{2}:\d{2})", line)
-                    obs_time = current_date.time()
-                    if time_match:
-                        obs_time = datetime.strptime(time_match.group(1), "%H:%M").time()
-                        
-                    content_start = line.find(priority_val.value) + len(priority_val.value)
-                    if time_match:
-                        content_start = line.find(time_match.group(1)) + len(time_match.group(1))
-                        
-                    raw_content = line[content_start:].strip()
-                    
-                    # Extract references
-                    ref_date = None
-                    rel_date = None
-                    ref_match = re.search(r"\(([^)]*referenced[^)]*)\)", raw_content)
-                    if ref_match:
-                        ref_str = ref_match.group(1)
-                        raw_content = raw_content.replace(f"({ref_str})", "").strip()
-                        
-                        date_match = re.search(r"referenced:\s*(\d{4}-\d{2}-\d{2})", ref_str)
-                        if date_match:
-                            try:
-                                ref_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                            except Exception:
-                                pass
-                                
-                        meaning_match = re.search(r"meaning\s*\"([^\"]+)\"", ref_str)
-                        if meaning_match:
-                            rel_date = meaning_match.group(1)
-                            
-                    obs_date = datetime.combine(current_date.date(), obs_time, tzinfo=timezone.utc)
-                    
-                    obs = Observation(
-                        thread_id=thread_id,
-                        observation_date=obs_date,
-                        referenced_date=ref_date,
-                        relative_date=rel_date,
-                        priority=priority_val,
-                        content=raw_content,
-                        source_message_ids=source_message_ids
-                    )
-                    observations.append(obs)
-                except Exception as e:
-                    # Ignore malformed lines gracefully
-                    pass
-                    
-        return observations

@@ -17,7 +17,8 @@ class MockProvider(LLMProvider):
 def memory_om():
     config = OMConfig(
         observer_token_threshold=10, # Very low to trigger it easily
-        auto_observe=True
+        auto_observe=True,
+        message_retention_count=0,  # Delete all messages after observation (legacy behavior)
     )
     provider = MockProvider()
     storage = InMemoryStorage()
@@ -31,9 +32,9 @@ async def test_om_add_message_triggers_observer(memory_om):
     await memory_om.aadd_message(thread_id, "user", "This is a slightly longer message to exceed ten tokens limit.")
     
     # Should automatically observe and compress since we hit the threshold
-    # Messages should be deleted, observations should exist
+    # With message_retention_count=0, all messages are deleted after observation
     msgs = await memory_om.storage.aget_messages(thread_id)
-    assert len(msgs) == 0  # Block 2 compressed, should be 0 or small
+    assert len(msgs) == 0
     
     obs = await memory_om.storage.aget_observations(thread_id)
     assert len(obs) > 0 # Should have the mock observation

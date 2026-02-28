@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "om-memory"
-version = "0.1.0"
+version = "0.2.1"
 description = "Human-like memory for AI agents. 10x cheaper than RAG. Zero vector DB needed."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
-    { name = "Your Name", email = "your@email.com" }
+    { name = "pratik333" }
 ]
 keywords = [
     "ai", "llm", "memory", "observational-memory", "rag", 
@@ -28,14 +28,15 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.0",
-    "aiosqlite>=0.19.0",     # Default storage
-    "httpx>=0.24.0",         # HTTP client for providers
+    "aiosqlite>=0.19.0",
+    "httpx>=0.24.0",
 ]
 
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.30"]
-ollama = []  # Just uses httpx
+gemini = ["google-generativeai>=0.5"]
+ollama = []
 litellm = ["litellm>=1.0"]
 postgres = ["asyncpg>=0.29", "psycopg2-binary>=2.9"]
 mongodb = ["motor>=3.3", "pymongo>=4.6"]
@@ -45,7 +46,7 @@ dashboard = ["streamlit>=1.30"]
 langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
 all = [
-    "om-memory[openai,anthropic,litellm,postgres,mongodb,redis,tiktoken,dashboard,langchain,llamaindex]"
+    "om-memory[openai,anthropic,gemini,litellm,postgres,mongodb,redis,tiktoken,dashboard,langchain,llamaindex]"
 ]
 dev = [
     "pytest>=7.0",
@@ -55,7 +56,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/om-memory"
-Documentation = "https://github.com/yourusername/om-memory#readme"
-Repository = "https://github.com/yourusername/om-memory"
-Issues = "https://github.com/yourusername/om-memory/issues"
+Homepage = "https://github.com/pratik333/om-memory"
+Documentation = "https://github.com/pratik333/om-memory#readme"
+Repository = "https://github.com/pratik333/om-memory"
+Issues = "https://github.com/pratik333/om-memory/issues"

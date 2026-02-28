@@ -19,23 +19,24 @@ class Message(BaseModel):
     """A single conversation message."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     thread_id: str
+    resource_id: Optional[str] = None  # For resource-scoped memory
     role: str  # "user", "assistant", "system", "tool"
     content: str
-    # Keep timestamps naive if user provides them, but our default is timezone-aware UTC.
     timestamp: datetime = Field(default_factory=utcnow)
-    token_count: Optional[int] = None  # Calculated on creation
+    token_count: Optional[int] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 class Observation(BaseModel):
     """A single compressed observation extracted from conversation."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     thread_id: str
+    resource_id: Optional[str] = None  # For resource-scoped (cross-thread) memory
     observation_date: datetime = Field(default_factory=utcnow)
     referenced_date: Optional[datetime] = None
     relative_date: Optional[str] = None
     priority: Priority = Priority.INFO
     content: str
-    source_message_ids: list[str] = Field(default_factory=list)  # Traceability
+    source_message_ids: list[str] = Field(default_factory=list)
     token_count: Optional[int] = None
 
 class ObservationLog(BaseModel):
@@ -52,7 +53,6 @@ class ObservationLog(BaseModel):
         if not self.observations:
             return "No previous memory observed."
             
-        # Group observations by date (using YYYY-MM-DD format based on observation_date)
         grouped: dict[str, list[Observation]] = {}
         for obs in self.observations:
             date_str = obs.observation_date.strftime("%Y-%m-%d")
@@ -61,12 +61,10 @@ class ObservationLog(BaseModel):
         lines = []
         for date_str in sorted(grouped.keys()):
             lines.append(f"Date: {date_str}")
-            # Sort within date chronologically
             sorted_obs = sorted(grouped[date_str], key=lambda x: x.observation_date)
             for obs in sorted_obs:
                 time_str = obs.observation_date.strftime("%H:%M")
                 
-                # Format: 🔴 HH:MM Content (referenced: YYYY-MM-DD, meaning "...")
                 ref_part = ""
                 if obs.referenced_date or obs.relative_date:
                     ref_inner = []
@@ -84,18 +82,28 @@ class ObservationLog(BaseModel):
 class OMConfig(BaseModel):
     """Configuration for ObservationalMemory."""
     # Thresholds
-    observer_token_threshold: int = 30000    # Trigger Observer when messages exceed this
-    reflector_token_threshold: int = 40000   # Trigger Reflector when observations exceed this
-    max_message_history_tokens: int = 50000  # Hard cap on raw message history
+    observer_token_threshold: int = 30000
+    reflector_token_threshold: int = 40000
+    max_message_history_tokens: int = 50000
+    
+    # Rolling window — messages to retain after observation
+    message_retention_count: int = 5
+    
+    # Token budgets
+    message_token_budget: int = 10000       # Max tokens for raw message history
+    share_token_budget: bool = False        # Allow messages to borrow from observation budget
+    
+    # Demo mode — lower thresholds for testing (2k/4k)
+    demo_mode: bool = False
     
     # Observer/Reflector model
-    observer_model: Optional[str] = None     # None = use provider default
+    observer_model: Optional[str] = None
     reflector_model: Optional[str] = None
     
     # Behavior
-    auto_observe: bool = True       # Auto-trigger Observer when threshold hit
-    auto_reflect: bool = True       # Auto-trigger Reflector when threshold hit
-    blocking_mode: bool = True      # True = block during compression, False = background async task
+    auto_observe: bool = True
+    auto_reflect: bool = True
+    blocking_mode: bool = True
     
     # Observation format
     use_emoji_priority: bool = True
@@ -103,9 +111,17 @@ class OMConfig(BaseModel):
     
     # Cost tracking
     track_costs: bool = True
-    cost_per_1k_input_tokens: float = 0.01   # Default, user should set based on their model
+    cost_per_1k_input_tokens: float = 0.01
     cost_per_1k_output_tokens: float = 0.03
-    cached_token_discount: float = 0.9       # 90% discount for cached tokens
+    cached_token_discount: float = 0.9
+    
+    def model_post_init(self, __context):
+        """Apply demo mode overrides after initialization."""
+        if self.demo_mode:
+            self.observer_token_threshold = 2000
+            self.reflector_token_threshold = 4000
+            self.max_message_history_tokens = 5000
+            self.message_token_budget = 1000
 
 
 class OMStats(BaseModel):
@@ -118,9 +134,9 @@ class OMStats(BaseModel):
     total_output_tokens: int = 0
     total_cached_tokens: int = 0
     estimated_cost_with_om: float = 0.0
-    estimated_cost_without_om: float = 0.0   # What it would cost with naive approach
+    estimated_cost_without_om: float = 0.0
     cost_savings: float = 0.0
-    compression_ratio: float = 0.0           # raw_tokens / compressed_tokens
+    compression_ratio: float = 0.0
     cache_hit_rate: float = 0.0
     observer_runs: int = 0
     reflector_runs: int = 0

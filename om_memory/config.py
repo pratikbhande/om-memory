@@ -36,6 +36,16 @@ def from_env() -> OMConfig:
     # Tracking
     if "OM_TRACK_COSTS" in os.environ:
         config_kwargs["track_costs"] = os.environ["OM_TRACK_COSTS"].lower() in ("true", "1", "yes")
+    
+    # New settings
+    if "OM_DEMO_MODE" in os.environ:
+        config_kwargs["demo_mode"] = os.environ["OM_DEMO_MODE"].lower() in ("true", "1", "yes")
+    if "OM_MESSAGE_RETENTION" in os.environ:
+        config_kwargs["message_retention_count"] = int(os.environ["OM_MESSAGE_RETENTION"])
+    if "OM_MESSAGE_TOKEN_BUDGET" in os.environ:
+        config_kwargs["message_token_budget"] = int(os.environ["OM_MESSAGE_TOKEN_BUDGET"])
+    if "OM_SHARE_TOKEN_BUDGET" in os.environ:
+        config_kwargs["share_token_budget"] = os.environ["OM_SHARE_TOKEN_BUDGET"].lower() in ("true", "1", "yes")
         
     return OMConfig(**config_kwargs)
 
