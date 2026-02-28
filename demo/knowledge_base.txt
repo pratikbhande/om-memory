@@ -1,0 +1,57 @@
+== COMPANY HANDBOOK: ACME TECHNOLOGIES ==
+
+SECTION 1: PAID TIME OFF (PTO) POLICY
+
+All full-time employees at Acme Technologies are entitled to 20 days of paid time off per year. PTO accrues at a rate of 1.67 days per month. New employees begin accruing PTO from their first day. Unused PTO carries over up to a maximum of 5 days into the next calendar year. PTO requests must be submitted at least 2 weeks in advance for trips longer than 3 days. Manager approval is required for all PTO requests. During peak project periods (Q4), PTO requests may be limited to 3 consecutive days unless pre-approved by the VP of Engineering. Employees who have been with the company for more than 5 years receive an additional 5 days of PTO, bringing their total to 25 days per year.
+
+SECTION 2: REMOTE WORK POLICY
+
+Acme Technologies supports a hybrid work model. All engineering team members may work remotely on Tuesdays and Thursdays. Senior engineers (L5 and above) may work remotely up to 3 days per week with manager approval. All employees must be available during core hours: 10:00 AM to 4:00 PM EST. Remote employees must use the company VPN for all work-related activities. Equipment stipend of $1,500 is provided annually for home office setup. Team standup meetings are mandatory and held daily at 10:15 AM EST via Zoom. On-site presence is required for quarterly planning weeks, typically the first week of each quarter.
+
+SECTION 3: EXPENSE REIMBURSEMENT
+
+Business travel meals are covered up to $50 per day domestically and $75 per day internationally. Hotel accommodations are reimbursed up to $200 per night domestically and $300 per night internationally. All expenses must be submitted within 30 days of the trip via the Expensify app. Receipts are required for any individual expense over $25. Air travel must be booked economy class for domestic flights; business class is permitted for international flights over 6 hours. The company provides a corporate Amex card for frequent travelers. Ground transportation (Uber, Lyft, taxis) is covered for business purposes. Personal vehicle mileage is reimbursed at the IRS standard rate of $0.67 per mile.
+
+SECTION 4: ENGINEERING CAREER LADDER
+
+The engineering career ladder at Acme Technologies consists of the following levels:
+- L1 (Junior Engineer): 0-2 years experience. Focus on learning and executing well-defined tasks.
+- L2 (Engineer): 2-4 years experience. Independently completes features and participates in code reviews.
+- L3 (Senior Engineer): 4-7 years experience. Leads projects, mentors junior engineers, contributes to architecture decisions.
+- L4 (Staff Engineer): 7-10 years experience. Drives technical strategy across multiple teams. Expected to produce technical RFCs.
+- L5 (Principal Engineer): 10+ years experience. Sets company-wide technical direction. Reports to CTO.
+- L6 (Distinguished Engineer): Industry-recognized expertise. Represents the company at conferences. Fewer than 5 in the company.
+Promotions are reviewed bi-annually in June and December. Engineers must demonstrate consistent performance at the next level for at least 6 months before promotion. Each level has a corresponding salary band published on the internal wiki.
+
+SECTION 5: ON-CALL ROTATION
+
+All backend and infrastructure engineers participate in the on-call rotation. On-call shifts last one week, Monday 9 AM to Monday 9 AM. During on-call, engineers must respond to pages within 15 minutes (P1/Sev1) or 1 hour (P2/Sev2). On-call engineers receive a stipend of $500 per week plus $100 per incident responded to. If an engineer is paged more than 5 times during their shift, they receive a compensatory day off. On-call swaps must be arranged at least 48 hours in advance through PagerDuty. Post-incident reviews (PIRs) are required for all Sev1 incidents and must be completed within 5 business days. The on-call schedule is managed in PagerDuty and rotates among team members alphabetically.
+
+SECTION 6: BENEFITS AND PERKS
+
+Health insurance: Acme covers 90% of premiums for employees and 70% for dependents. Plans include medical, dental, and vision through Aetna. 401(k) matching: Company matches 50% of contributions up to 6% of salary. Stock options: All engineers receive equity grants at hire, vesting over 4 years with a 1-year cliff. Annual refresh grants are awarded based on performance. Learning budget: $2,000 per year for courses, conferences, and books. Gym membership: $75/month reimbursement for gym or fitness apps. Commuter benefits: Pre-tax transit and parking benefits up to IRS limits. Parental leave: 16 weeks paid for primary caregivers, 8 weeks for secondary caregivers. Mental health: Free access to Headspace and 6 free therapy sessions per year through Lyra Health.
+
+SECTION 7: SECURITY AND COMPLIANCE
+
+All employees must complete annual security awareness training by December 31st. Two-factor authentication (2FA) is mandatory for all company systems. Sharing credentials or access tokens is strictly prohibited and grounds for termination. Customer data must never be stored on personal devices or non-approved cloud services. All code must pass security scanning (Snyk) before merging to main branch. Engineers with access to production systems must use hardware security keys (YubiKey). Incident reporting: Any suspected security breach must be reported to security@acme.com within 1 hour. SOC 2 Type II compliance is maintained; all engineers may be asked to participate in audit interviews.
+
+SECTION 8: PERFORMANCE REVIEWS
+
+Performance reviews are conducted semi-annually in June and December. Reviews include self-assessment, peer feedback (minimum 3 peers), and manager evaluation. Performance is rated on a 5-point scale: Exceeds Expectations, Meets Expectations, Developing, Needs Improvement, Unsatisfactory. Compensation adjustments are tied to performance ratings and announced in January and July. Engineers rated "Exceeds Expectations" for two consecutive cycles are fast-tracked for promotion. Performance improvement plans (PIPs) are issued for "Needs Improvement" ratings and last 60 days. All review conversations are documented in Lattice.
+
+SECTION 9: TEAM STRUCTURE
+
+The engineering organization at Acme Technologies consists of 8 teams:
+- Platform Team: Core infrastructure, CI/CD, developer tools (12 engineers)
+- Backend API Team: REST and GraphQL APIs, microservices (15 engineers)
+- Frontend Team: React-based web application, design system (10 engineers)
+- Mobile Team: iOS (Swift) and Android (Kotlin) applications (8 engineers)
+- Data Engineering Team: ETL pipelines, data warehouse, analytics (7 engineers)
+- ML/AI Team: Recommendation engine, NLP features, model serving (6 engineers)
+- Security Team: Application security, compliance, incident response (4 engineers)
+- SRE Team: Site reliability, monitoring, on-call management (5 engineers)
+Each team has a Tech Lead (L3-L4) and an Engineering Manager. Cross-team projects are coordinated through the Architecture Review Board (ARB) which meets bi-weekly.
+
+SECTION 10: INTERNAL TOOLS AND ACCESS
+
+All engineers get access to: GitHub Enterprise, Jira, Confluence, Slack, Zoom, Figma (view-only for engineers). Development environment: Engineers may choose between MacBook Pro 16" (M3 Max, 64GB) or Linux workstation (Ubuntu, 64GB RAM). IDE: VS Code is the recommended IDE; JetBrains licenses are available upon request. CI/CD: All projects use GitHub Actions for CI and ArgoCD for CD. Monitoring: Datadog for APM, PagerDuty for alerting, Grafana for dashboards. Cloud: Primary cloud provider is AWS. GCP is used for ML workloads. All infrastructure is managed via Terraform. Database: Primary databases are PostgreSQL (RDS) and DynamoDB. Redis is used for caching. Feature flags are managed through LaunchDarkly.

@@ -1,0 +1,6 @@
+om-memory[all]==0.2.2
+streamlit>=1.30
+chromadb>=0.4
+openai>=1.0
+plotly>=5.0
+nest-asyncio>=1.5
