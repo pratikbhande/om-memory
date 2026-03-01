@@ -28,7 +28,7 @@ from om_memory.storage.base import StorageBackend
 from om_memory.parsing import parse_observations
 
 # Version
-__version__ = "0.2.4"
+__version__ = "0.3.2"
 
 __all__ = [
     "ObservationalMemory",

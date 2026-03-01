@@ -11,6 +11,10 @@ from om_memory.parsing import parse_observations
 class Observer:
     """
     The Observer agent compresses raw conversation messages into observations.
+    
+    Key design: Only sends a compact summary of existing observations (not full text)
+    plus only the NEW uncompressed messages to the LLM. This minimizes the token cost
+    of each background compression call.
     """
     
     def __init__(self, provider: LLMProvider, config: OMConfig, token_counter: TokenCounter):
@@ -32,14 +36,18 @@ class Observer:
             
         existing_observations = existing_observations or []
         
-        # Build prompt
-        context_str = "No previous context."
+        # Build a ULTRA-COMPACT summary of existing observations — just key facts for dedup.
         if existing_observations:
-            context_str = "\n".join([f"{o.priority.value} {o.observation_date.strftime('%Y-%m-%d %H:%M')} {o.content}" for o in existing_observations])
+            # Only last 5 observations, content only — minimal tokens for dedup
+            recent = existing_observations[-5:]
+            context_str = "; ".join([o.content for o in recent])
+        else:
+            context_str = "None"
             
-        user_prompt = f"Previous Observations:\n{context_str}\n\nRecent Messages to Compress:\n"
+        # Build the user prompt with only the messages to compress
+        user_prompt = f"Existing context: {context_str}\n\nMessages:\n"
         for msg in messages:
-            user_prompt += f"{msg.timestamp.strftime('%Y-%m-%d %H:%M')} {msg.role}: {msg.content}\n"
+            user_prompt += f"{msg.role}: {msg.content}\n"
             
         system_prompt = OBSERVER_SYSTEM_PROMPT
         

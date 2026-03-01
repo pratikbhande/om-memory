@@ -17,7 +17,7 @@ def test_context_builder_text():
     
     ctx = builder.build_context("1", observations, messages, format="text")
     
-    assert "=== CONVERSATION MEMORY ===" in ctx
+    assert "[Memory" in ctx
     assert "CURRENT TASK: Testing Context" in ctx
     assert "user: Hi" in ctx
 

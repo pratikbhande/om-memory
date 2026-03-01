@@ -83,7 +83,7 @@ class OMConfig(BaseModel):
     """Configuration for ObservationalMemory."""
     # Thresholds
     observer_token_threshold: int = 30000
-    reflector_token_threshold: int = 40000
+    reflector_token_threshold: int = 5000
     max_message_history_tokens: int = 50000
     
     # Rolling window — messages to retain after observation

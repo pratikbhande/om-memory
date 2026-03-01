@@ -23,12 +23,12 @@ class ObservationalMemory:
     """
     The main entry point for Observational Memory.
     
-    Supports:
-    - Thread-scoped memory (per conversation)
-    - Resource-scoped memory (shared across a user's threads)
-    - Rolling window message retention
-    - Async buffering for non-blocking mode
-    - Demo mode with lower thresholds
+    Architecture (following Mastra's proven approach):
+    - Context = [Block 1: Dense Observations] + [Block 2: Recent Uncompressed Messages]
+    - When Block 2 (messages) exceeds threshold → Observer compresses them into new
+      observations appended to Block 1, then deletes the compressed messages
+    - When Block 1 (observations) exceeds threshold → Reflector garbage-collects
+    - Result: context window stays STABLE and SMALL as conversation grows
     """
     
     def __init__(
@@ -128,13 +128,9 @@ class ObservationalMemory:
         """
         Get context for a thread, optionally including resource-scoped observations.
         
-        Args:
-            thread_id: The conversation thread ID.
-            resource_id: Optional. If provided, also includes observations shared
-                         across all threads for this resource (e.g., a user ID).
-            max_tokens: Maximum tokens for the context window.
-            format: Output format — "text", "dict", or "json".
-            include_header: Whether to include section headers.
+        Returns a two-block context:
+        - Block 1: Dense observation log (compressed history)
+        - Block 2: Recent uncompressed messages
         """
         await self.storage.ainitialize()
         
@@ -181,12 +177,9 @@ class ObservationalMemory:
         """
         Add a message and trigger observation if threshold is exceeded.
         
-        Args:
-            thread_id: The conversation thread ID.
-            role: Message role ("user", "assistant", "system", "tool").
-            content: Message content.
-            resource_id: Optional resource ID for cross-thread memory sharing.
-            metadata: Optional metadata dict.
+        When the uncompressed message block exceeds the observer threshold,
+        the observer compresses ALL current messages into observations,
+        then deletes the compressed messages (keeping only retention count).
         """
         await self.storage.ainitialize()
         
@@ -245,30 +238,40 @@ class ObservationalMemory:
     # --- INTERNAL OBSERVATION/REFLECTION ---
 
     async def _run_observe(self, thread_id: str, messages: list[Message], resource_id: str = None) -> list[Observation]:
+        """
+        Run the observer to compress messages into observations.
+        
+        Flow:
+        1. Get existing observations (for context, not re-processing)
+        2. Observer compresses the messages into new observations
+        3. Save new observations (append to Block 1)
+        4. Delete compressed messages, keeping only the last N (rolling window)
+        5. Check if reflector needs to run (Block 1 too large)
+        """
         observations = await self.storage.aget_observations(thread_id)
         new_obs = await self.observer.aobserve(
             thread_id, messages, observations, self.callbacks, resource_id=resource_id
         )
         
         if new_obs:
-            # Set resource_id on observations BEFORE saving (avoids double-insert)
+            # Set resource_id on observations BEFORE saving
             if resource_id:
                 for obs in new_obs:
                     obs.resource_id = resource_id
             
             await self.storage.asave_observations(new_obs)
             
-            # ROLLING WINDOW: Keep the last N messages instead of deleting ALL
+            # ROLLING WINDOW: Delete compressed messages, keep last N
             retention = self.config.message_retention_count
             if retention > 0 and len(messages) > retention:
                 messages_to_delete = messages[:-retention]
                 await self.storage.adelete_messages([m.id for m in messages_to_delete])
             elif retention == 0:
-                # Delete all (old behavior, configurable)
+                # Delete all messages after compression
                 await self.storage.adelete_messages([m.id for m in messages])
             # else: retention >= len(messages), keep all
             
-            # Check if reflection is needed
+            # Check if reflection is needed (Block 1 too large)
             all_obs = observations + new_obs
             obs_tokens = self.token_counter.count_observations(all_obs)
             
