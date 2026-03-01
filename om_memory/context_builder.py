@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 class ContextBuilder:
     """
     Builds the final context string from observations + messages.
+    
+    Produces a two-block context:
+    - Block 1: Dense observation log (compressed history) — stable, cacheable
+    - Block 2: Recent uncompressed messages — small rolling window
     """
     
     def __init__(self, token_counter: TokenCounter):
@@ -49,13 +53,6 @@ class ContextBuilder:
             messages = trimmed_messages
             msg_total_tokens = self.token_counter.count_messages(messages)
         
-        # If share_token_budget is True and messages still need room,
-        # allow them to borrow from the observation budget
-        effective_max = max_tokens
-        if share_token_budget and max_tokens:
-            # Messages can use observation budget space
-            pass  # No separate capping — the combined truncation below handles it
-        
         # Truncate observations if combined budget exceeded
         if max_tokens and (obs_total_tokens + msg_total_tokens > max_tokens):
             sorted_obs = sorted(
@@ -82,18 +79,31 @@ class ContextBuilder:
             import json
             ctx = json.dumps(self.build_context_dict(obs_log, messages), default=str)
         else:
-            obs_text = obs_log.to_context_string()
-            msg_text = "\n".join([f"{m.role}: {m.content}" for m in messages])
-            
+            # Build compact two-block context
             blocks = []
-            if include_header:
-                blocks.append("=== CONVERSATION MEMORY ===")
-            blocks.append(obs_text)
             
-            if messages:
+            # Block 1: Observations (only if we have them)
+            obs_text = obs_log.to_context_string()
+            has_observations = bool(observations)
+            
+            if has_observations:
                 if include_header:
-                    blocks.append("\n=== RECENT MESSAGES ===")
+                    blocks.append("[Memory — what I remember from this conversation]")
+                blocks.append(obs_text)
+            
+            # Block 2: Recent messages (only if we have them)
+            if messages:
+                msg_lines = []
+                for m in messages:
+                    msg_lines.append(f"{m.role}: {m.content}")
+                msg_text = "\n".join(msg_lines)
+                
+                if include_header:
+                    blocks.append("\n[Recent]")
                 blocks.append(msg_text)
+            elif not has_observations:
+                # No observations and no messages — empty context
+                blocks.append("No conversation history.")
                 
             ctx = "\n".join(blocks)
             

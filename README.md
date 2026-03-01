@@ -4,54 +4,77 @@
 ![Python Versions](https://img.shields.io/pypi/pyversions/om-memory.svg)
 ![PyPI Version](https://img.shields.io/pypi/v/om-memory)
 
-**Human-like memory for AI agents. 10x cheaper than RAG. Zero vector DB needed.**
+**Human-like memory for AI agents. Cheaper than RAG. Zero vector DB needed.**
 
-`om-memory` is the first-ever Python implementation of **Observational Memory (OM)** — a revolutionary approach to AI agent memory. Instead of embedding every message and retrieving similar ones per turn (RAG), OM continuously compresses conversation history into a dense, evolving text log of "observations" using two background agents (Observer and Reflector).
+`om-memory` is a Python implementation of **Observational Memory (OM)** — a smarter approach to AI agent memory inspired by [Mastra's OM architecture](https://mastra.ai/docs/memory/observational-memory). Instead of stuffing full conversation history into every API call, OM compresses old messages into dense observations using two background agents (Observer & Reflector).
 
-## What is Observational Memory?
+## Benchmark Results (Real API Calls)
 
-Observational Memory (OM) maintains a stable text context window of the user's conversation. 
-The observation log is plain text that stays stable in the context window, enabling prompt caching (75-90% token cost discount from providers like OpenAI/Anthropic). Traditional RAG injects different retrieved chunks every turn, breaking the cache and costing up to 10x more.
+Tested with **gpt-4o-mini** over a 50-turn HR chatbot conversation:
 
-## Why om-memory?
-- **10x Cheaper than RAG**: By leveraging prompt caching on a stable context window.
-- **Zero Vector DB Needed**: Uses standard storage backends (SQLite, Postgres, etc.) — no embeddings, no vector search.
-- **Better Accuracy**: Maintains narrative continuity better than fragmented vector retrieval (Highest recorded on LongMemEval).
-- **Framework-Agnostic**: Middleware pattern. `om-memory` manages context, you make your own LLM calls with LangChain, LlamaIndex, or raw Python.
-- **Observable by Default**: Full event tracking, metrics, and Streamlit dashboard integration.
+| Metric | Traditional RAG | om-memory | Improvement |
+|--------|----------------|-----------|-------------|
+| **Total tokens** | 73,599 | 54,058 | **27% savings** |
+| **Per-turn at turn 50** | 2,824 tokens | 1,559 tokens | **45% savings** |
+| **Memory accuracy** | 100% (full history) | 100% (8/8 recall) | **No loss** |
+| **Context growth** | Linear O(n) | Flat O(1) | **Stable** |
+
+> RAG token usage grows linearly with every turn. om-memory stays flat — the longer the conversation, the bigger the savings.
+
+## How It Works
+
+```
+Traditional RAG:    [System] + [KB] + [ALL Messages]        ← grows every turn
+om-memory:          [System] + [KB] + [Observations] + [Last 2 msgs]  ← stays flat
+```
+
+1. **Observer**: When message history exceeds a token threshold, compresses messages into concise observations (facts, decisions, preferences)
+2. **Reflector**: When observations pile up, merges and prunes them — like a garbage collector for memory
+3. **Context Builder**: Serves a two-block context: compressed observations + recent messages
+
+The result: your agent remembers everything important without carrying every raw message.
 
 ## Quick Start
-
-`om-memory` provides sensible defaults out of the box (SQLite storage, OpenAI `gpt-4o-mini` for background compression).
 
 ```python
 import asyncio
 from om_memory import ObservationalMemory
 
 async def main():
-    # 1. Initialize OM (Zero config needed, uses SQLite + OPENAI_API_KEY)
+    # 1. Initialize (uses SQLite + OPENAI_API_KEY by default)
     om = ObservationalMemory()
-    
-    # 2. Get context for a user thread
-    thread_id = "user_123"
-    context = await om.aget_context(thread_id=thread_id)
-    
-    # 3. Build your prompt and call YOUR LLM
-    prompt = f"System: You are a helpful assistant.\n{context}\nUser: Hello!"
-    response = "Hello! How can I help you today?" # Replace with actual LLM call
-    
-    # 4. Tell OM what happened so it can remember for next time
-    await om.aadd_message(thread_id=thread_id, role="user", content="Hello!")
-    await om.aadd_message(thread_id=thread_id, role="assistant", content=response)
+    await om.ainitialize()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    thread_id = "user_123"
+
+    # 2. Get compressed context for your prompt
+    context = await om.aget_context(thread_id)
+
+    # 3. Use it in your LLM call
+    prompt = f"You are a helpful assistant.\n{context}\nUser: Hello!"
+    response = "Hello! How can I help?"  # your LLM call here
+
+    # 4. Tell OM what happened
+    await om.aadd_message(thread_id, "user", "Hello!")
+    await om.aadd_message(thread_id, "assistant", response)
+
+asyncio.run(main())
 ```
 
-## How It Works
+## Configuration
 
-1. **Block 1 (Observations):** A compressed, timestamped log of facts, decisions, and preferences. Handled by the **Reflector** agent.
-2. **Block 2 (Recent Messages):** The uncompressed recent turns of the conversation. Once this grows past a threshold, the **Observer** agent compresses it into Block 1.
+```python
+from om_memory import ObservationalMemory, OMConfig
+
+config = OMConfig(
+    observer_token_threshold=300,    # compress after ~3 exchanges
+    reflector_token_threshold=1500,  # GC observations early
+    message_retention_count=2,       # keep last 2 messages uncompressed
+    message_token_budget=200,        # token budget for recent messages
+)
+
+om = ObservationalMemory(api_key="sk-...", config=config)
+```
 
 ## Installation
 
@@ -59,14 +82,34 @@ if __name__ == "__main__":
 pip install om-memory
 ```
 
-Optional dependencies:
-- `pip install om-memory[anthropic]` - Anthropic provider support
-- `pip install om-memory[postgres]` - PostgreSQL storage backend
-- `pip install om-memory[dashboard]` - Streamlit dashboard
+Optional extras:
+```bash
+pip install om-memory[postgres]     # PostgreSQL storage
+pip install om-memory[anthropic]    # Anthropic provider
+pip install om-memory[gemini]       # Google Gemini provider
+pip install om-memory[dashboard]    # Streamlit dashboard
+```
 
-## Documentation
+## Why Not Traditional RAG?
 
-Full documentation available in the repository examples.
+| | Traditional RAG | om-memory |
+|---|---|---|
+| **Context size** | Grows linearly with turns | Stays flat |
+| **Infrastructure** | Vector DB + embeddings | SQLite (zero setup) |
+| **Memory type** | Retrieves fragments | Maintains narrative |
+| **Long conversations** | Hits context limit | Unlimited |
+| **Cost trend** | Increases per turn | Stable per turn |
+
+## Try It Yourself
+
+Run the benchmark locally:
+```bash
+pip install om-memory openai
+export OPENAI_API_KEY="sk-..."
+python demo/generate_graphs.py
+```
+
+Or try the interactive [Colab notebook](demo/om_memory_colab.ipynb).
 
 ## License
 
